@@ -207,7 +207,12 @@ XDG Base Directory 규칙을 따릅니다(환경변수가 절대경로가 아니
 make test       # go test ./...
 make lint       # go vet + gofmt -l
 make build      # ./bin/repo
+make dist       # 플랫폼별 릴리스 아카이브 + checksums.txt → ./dist
 ```
+
+릴리스는 태그를 밀면 끝납니다. `v*` 태그가 올라오면 `.github/workflows/release.yml`이
+`make dist`로 크로스 컴파일하고 아카이브(`repo_<버전>_<os>_<arch>.tar.gz`)와 `checksums.txt`를
+GitHub 릴리스로 올립니다.
 
 구조:
 
@@ -226,3 +231,7 @@ internal/
   config/     설정 파일
   xdg/        XDG 경로
 ```
+
+## 라이센스
+
+[Apache License 2.0](LICENSE) © 2026 Il Sub Bang
