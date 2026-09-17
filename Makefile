@@ -3,7 +3,8 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 PREFIX  ?= $(HOME)/.local
 
-# Platforms `make dist` cross-compiles release archives for.
+# Platforms `make dist` cross-compiles release archives for. `repo upgrade`
+# picks its download out of them by the _<os>_<arch>. part of the file name.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 .PHONY: all build install uninstall test lint fmt tidy clean completions dist

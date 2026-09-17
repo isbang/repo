@@ -82,6 +82,7 @@ func (a *app) newCacheInfoCmd() *cobra.Command {
 			fmt.Fprintf(w, "size\t%s\n", humanize.Bytes(size))
 			fmt.Fprintf(w, "fetched\t%s (%s)\n", file.FetchedAt.Format("2006-01-02 15:04:05"), humanize.Ago(file.FetchedAt))
 			fmt.Fprintf(w, "refreshing\t%t\n", refresh.InProgress())
+			fmt.Fprintf(w, "update check\t%s\n", a.updateStatus())
 			if log := strings.TrimSpace(refresh.LastError()); log != "" {
 				fmt.Fprintf(w, "refresh log\t%s\n", refresh.LogPath())
 				for _, line := range lastLines(log, 3) {

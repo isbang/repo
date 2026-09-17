@@ -1,5 +1,6 @@
-# Pushing a v* tag is the whole release process: the job cross-compiles every
-# platform, writes checksums.txt and creates the GitHub release from them.
+# Publishes the archives `repo upgrade` installs. Pushing a v* tag is the whole
+# release process: the job cross-compiles every platform, writes checksums.txt
+# and creates the GitHub release from them.
 name: release
 
 on:

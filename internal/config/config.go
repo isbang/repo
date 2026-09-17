@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/isbang/repo/internal/xdg"
 )
@@ -25,6 +26,10 @@ const DefaultAffiliation = "owner,collaborator,organization_member"
 // DefaultCloneConcurrency is how many queued clones run in parallel. Clones are
 // network-bound, so a couple at a time is plenty.
 const DefaultCloneConcurrency = 2
+
+// DefaultUpdateCheckInterval is how often the background process asks GitHub
+// whether a newer release of this CLI exists, in seconds.
+const DefaultUpdateCheckInterval = 24 * 60 * 60
 
 // Config is the user configuration, read from $XDG_CONFIG_HOME/repo/config.json.
 // Every field is optional; zero values fall back to the defaults below.
@@ -49,6 +54,14 @@ type Config struct {
 	CloneConcurrency int `json:"clone_concurrency"`
 	// GitArgs are extra arguments passed to every `git clone`.
 	GitArgs []string `json:"git_args"`
+	// UpdateCheck enables the "a new version is available" notice.
+	UpdateCheck *bool `json:"update_check"`
+	// UpdateCheckInterval throttles that check: GitHub is asked at most once
+	// per this many seconds.
+	UpdateCheckInterval int `json:"update_check_interval_seconds"`
+	// UpdatePrompt offers to install a new release when one is announced. The
+	// offer only appears on a terminal, and always defaults to no.
+	UpdatePrompt *bool `json:"update_prompt"`
 
 	// path records where this config was read from (empty when defaulted).
 	path string
@@ -65,6 +78,10 @@ func Default() *Config {
 		IncludeArchived:    &t,
 		RefreshMinInterval: 0,
 		CloneConcurrency:   DefaultCloneConcurrency,
+
+		UpdateCheck:         &t,
+		UpdateCheckInterval: DefaultUpdateCheckInterval,
+		UpdatePrompt:        &t,
 	}
 }
 
@@ -126,6 +143,11 @@ func (c *Config) applyEnv() {
 			c.CloneConcurrency = n
 		}
 	}
+	if v := os.Getenv("REPO_UPDATE_CHECK_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			c.UpdateCheckInterval = n
+		}
+	}
 }
 
 func (c *Config) applyDefaults() {
@@ -147,6 +169,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.CloneConcurrency < 1 {
 		c.CloneConcurrency = d.CloneConcurrency
+	}
+	if c.UpdateCheck == nil {
+		c.UpdateCheck = d.UpdateCheck
+	}
+	if c.UpdatePrompt == nil {
+		c.UpdatePrompt = d.UpdatePrompt
+	}
+	if c.UpdateCheckInterval < 0 {
+		c.UpdateCheckInterval = d.UpdateCheckInterval
 	}
 	if c.CloneDir != "" {
 		c.CloneDir = expandHome(c.CloneDir)
@@ -171,6 +202,24 @@ func (c *Config) Forks() bool { return c.IncludeForks == nil || *c.IncludeForks 
 
 // Archived reports whether archived repositories are listed by default.
 func (c *Config) Archived() bool { return c.IncludeArchived == nil || *c.IncludeArchived }
+
+// UpdateChecks reports whether the update notice is switched on.
+func (c *Config) UpdateChecks() bool { return c.UpdateCheck == nil || *c.UpdateCheck }
+
+// UpdatePrompts reports whether a new release is offered for installation
+// rather than only announced.
+func (c *Config) UpdatePrompts() bool {
+	if os.Getenv("REPO_NO_UPDATE_PROMPT") != "" {
+		return false
+	}
+	return c.UpdatePrompt == nil || *c.UpdatePrompt
+}
+
+// UpdateInterval is how long an update check result is trusted. 0 in the config
+// means "check on every background refresh".
+func (c *Config) UpdateInterval() time.Duration {
+	return time.Duration(c.UpdateCheckInterval) * time.Second
+}
 
 // SourcePath returns the file this config was loaded from, or "" for defaults.
 func (c *Config) SourcePath() string { return c.path }

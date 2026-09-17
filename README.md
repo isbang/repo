@@ -51,6 +51,8 @@ go install github.com/isbang/repo@latest
 | `repo cache path\|info\|clear` | 캐시 위치·상태 확인, 삭제 |
 | `repo config path\|show\|init` | 설정 파일 확인·생성 |
 | `repo completion <shell>` | 셸 자동완성 스크립트 출력 |
+| `repo version [--check]` | 버전 출력, `--check`는 새 릴리스가 있는지 지금 확인 |
+| `repo upgrade [-y]` | 최신 릴리스를 받아 실행 중인 바이너리를 교체 |
 
 ### clone
 
@@ -152,6 +154,7 @@ XDG Base Directory 규칙을 따릅니다(환경변수가 절대경로가 아니
 | 설정 | `$XDG_CONFIG_HOME/repo/config.json` (기본 `~/.config/repo/config.json`) |
 | 클론 이력 | `$XDG_STATE_HOME/repo/history.json` (기본 `~/.local/state/repo/history.json`) |
 | 갱신 락·마커·로그 | `$XDG_STATE_HOME/repo/` (기본 `~/.local/state/repo/`) |
+| 업데이트 확인 결과 | `$XDG_STATE_HOME/repo/update.json` (기본 `~/.local/state/repo/update.json`) |
 
 클론 이력은 성공한 clone만 기록하고, 180일보다 오래된 항목과 500건 초과분은 쓰기 시점에 정리합니다.
 지워도 정렬 기준만 초기화되고 나머지 동작에는 영향이 없습니다.
@@ -164,6 +167,55 @@ XDG Base Directory 규칙을 따릅니다(환경변수가 절대경로가 아니
 - 갱신 로그는 `refresh.log`에 남습니다. `repo cache info`가 마지막 몇 줄을 보여줍니다.
 - 캐시가 비어 있는 첫 실행만 포그라운드로 가져옵니다.
 - 목록은 `/user/repos`를 100개씩 페이지로 가져오며, 첫 페이지의 `Link` 헤더로 전체 페이지 수를 알아낸 뒤 나머지를 병렬로 받습니다(66개 기준 약 1초).
+
+## 업데이트
+
+새 릴리스가 나오면 명령이 끝난 뒤 알려주고, 터미널이면 바로 설치할지 물어봅니다.
+
+```
+$ repo list
+...
+repo: v1.2.0 is available (you have v1.1.0)
+https://github.com/isbang/repo/releases/tag/v1.2.0
+update now? [y/N] y
+repo: updated to v1.2.0 (/home/ilsub/.local/bin/repo)
+```
+
+확인(check) 자체는 **포그라운드에서 하지 않습니다**. 캐시를 갱신하는 백그라운드 프로세스가 하루에 한 번
+GitHub 릴리스 API를 물어보고 결과를 `update.json`에 적어두고, 명령은 그 파일만 읽습니다.
+그래서 알림 때문에 명령이 느려지거나 실패할 일이 없습니다.
+
+- 비교는 semver 기준입니다. 릴리스가 없으면 최신 **태그**로 대신 보고, 프리릴리스와 버전이 아닌
+  태그는 무시합니다. `dev` 빌드처럼 비교할 버전이 없으면 아무것도 출력하지 않습니다.
+- 터미널에서 실행할 때만 출력·질문합니다. 파이프·리다이렉트로 받는 출력과 자동완성 스크립트는 그대로이고,
+  대답은 항상 **기본값이 no**입니다. 엔터만 쳐도 아무 일도 일어나지 않습니다.
+- 릴리스 조회는 토큰 없이도 동작합니다(요청 수 제한만 올라갑니다). GitHub Enterprise를 쓰더라도
+  릴리스는 항상 `github.com/isbang/repo`에서 확인하고, 그쪽 토큰은 보내지 않습니다.
+- 백그라운드 갱신을 꺼두면(`REPO_NO_REFRESH=1`, `--no-refresh`) 확인도 같이 멈춥니다.
+  그럴 때는 `repo version --check`나 `repo upgrade`로 직접 확인하면 됩니다.
+- 확인 상태는 `repo cache info`의 `update check` 줄에서 볼 수 있습니다.
+
+### repo upgrade
+
+```bash
+repo upgrade            # 최신 릴리스로 교체 (물어본 뒤 진행)
+repo upgrade -y         # 묻지 않고 진행
+repo upgrade --force    # 이미 최신이어도 다시 설치
+```
+
+플랫폼에 맞는 릴리스 아카이브(`repo_<버전>_<os>_<arch>.tar.gz`)를 받아서 교체합니다.
+
+- 릴리스에 같이 올라온 `checksums.txt`의 **SHA-256이 맞을 때만** 설치합니다. 체크섬이 없는 릴리스는
+  검증할 수단이 없으므로 설치를 거부합니다.
+- 받은 파일은 설치 경로와 **같은 디렉터리의 임시 파일**에 쓰고 `rename`으로 바꿔치기합니다.
+  다운로드가 중간에 끊겨도 쓰던 바이너리는 그대로입니다. 권한(mode)도 원래 것을 그대로 물려받습니다.
+- 심볼릭 링크로 설치돼 있으면 링크가 아니라 **실제 파일**을 교체합니다.
+- 쓸 수 없는 위치(패키지 매니저가 설치한 `/usr/bin` 등)면 **건드리지 않고** 그 사실을 알려줍니다.
+  그 경우는 설치할 때 쓰던 방법으로 다시 설치하세요.
+
+`update_check: false`(또는 `REPO_NO_UPDATE_CHECK=1`)로 확인과 알림을 모두 끄고,
+`update_prompt: false`(또는 `REPO_NO_UPDATE_PROMPT=1`)로 알림만 남기고 질문을 끌 수 있습니다.
+어느 쪽이든 `repo upgrade`는 직접 실행하면 동작합니다.
 
 ## 설정
 
@@ -179,7 +231,10 @@ XDG Base Directory 규칙을 따릅니다(환경변수가 절대경로가 아니
   "include_archived": true,
   "refresh_min_interval_seconds": 0,
   "clone_concurrency": 2,
-  "git_args": []
+  "git_args": [],
+  "update_check": true,
+  "update_check_interval_seconds": 86400,
+  "update_prompt": true
 }
 ```
 
@@ -187,11 +242,17 @@ XDG Base Directory 규칙을 따릅니다(환경변수가 절대경로가 아니
 - `refresh_min_interval_seconds`: `0`이면 실행마다 갱신합니다. 예: `300`이면 캐시가 5분보다 최신일 때 갱신을 건너뜁니다.
 - `clone_concurrency`: 큐에서 동시에 실행할 clone 개수 (`-j`로 덮어쓰기).
 - `git_args`: 모든 clone에 붙는 인자 (예: `["--filter=blob:none"]`).
+- `update_check`: `false`면 새 버전 확인과 알림을 완전히 끕니다.
+- `update_check_interval_seconds`: 릴리스를 다시 물어보기까지의 간격 (기본 86400 = 하루).
+- `update_prompt`: `false`면 새 버전을 알려주기만 하고 설치 여부를 묻지 않습니다.
 - `host`에 GitHub Enterprise 호스트를 넣으면 `https://<host>/api/v3`로 붙습니다.
 
 환경변수로 덮어쓸 수 있습니다: `REPO_HOST`, `REPO_PROTOCOL`, `REPO_AFFILIATION`, `REPO_CLONE_DIR`,
 `REPO_CLONE_CONCURRENCY`, `REPO_REFRESH_MIN_INTERVAL`, `REPO_CONFIG_FILE`, `REPO_CACHE_FILE`, `REPO_HISTORY_FILE`,
-`REPO_NO_REFRESH=1`(갱신 끄기, `--no-refresh`와 동일), `REPO_DEBUG=1`(백그라운드 갱신·이력 기록 실패를 stderr에 표시).
+`REPO_UPDATE_FILE`, `REPO_UPDATE_CHECK_INTERVAL`,
+`REPO_NO_REFRESH=1`(갱신 끄기, `--no-refresh`와 동일), `REPO_NO_UPDATE_CHECK=1`(업데이트 확인·알림 끄기),
+`REPO_NO_UPDATE_PROMPT=1`(알림은 두고 설치 질문만 끄기),
+`REPO_DEBUG=1`(백그라운드 갱신·이력 기록 실패를 stderr에 표시).
 
 ## 종료 코드
 
@@ -211,8 +272,9 @@ make dist       # 플랫폼별 릴리스 아카이브 + checksums.txt → ./dist
 ```
 
 릴리스는 태그를 밀면 끝납니다. `v*` 태그가 올라오면 `.github/workflows/release.yml`이
-`make dist`로 크로스 컴파일하고 아카이브(`repo_<버전>_<os>_<arch>.tar.gz`)와 `checksums.txt`를
-GitHub 릴리스로 올립니다.
+`make dist`로 크로스 컴파일하고 아카이브와 `checksums.txt`를 GitHub 릴리스로 올립니다.
+`repo upgrade`가 받는 파일이 바로 이것이므로, 아카이브 이름(`repo_<버전>_<os>_<arch>.tar.gz`)과
+`checksums.txt`는 워크플로우와 `internal/selfupdate`가 같이 맞춰야 합니다.
 
 구조:
 
@@ -228,6 +290,9 @@ internal/
   ghapi/      GitHub REST 클라이언트, 토큰 탐색
   cache/      XDG 캐시 원자적 읽기/쓰기
   refresh/    백그라운드 갱신, flock
+  update/     새 릴리스 확인 결과 기록 · 알림 문구
+  selfupdate/ 릴리스 아카이브 내려받기 · 검증 · 바이너리 교체
+  semver/     버전 문자열 비교
   config/     설정 파일
   xdg/        XDG 경로
 ```

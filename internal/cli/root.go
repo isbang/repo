@@ -20,6 +20,7 @@ import (
 	"github.com/isbang/repo/internal/query"
 	"github.com/isbang/repo/internal/refresh"
 	"github.com/isbang/repo/internal/tui"
+	"github.com/isbang/repo/internal/update"
 )
 
 // exitAborted is the conventional status for "user cancelled" (128 + SIGINT).
@@ -31,6 +32,8 @@ type app struct {
 	cfgErr  error
 
 	noRefresh bool
+	// notifyUpdate is decided in preRun and acted on once the command is done.
+	notifyUpdate bool
 }
 
 // Execute runs the CLI and returns the process exit code.
@@ -42,6 +45,9 @@ func Execute(version string) int {
 	defer stop()
 
 	err := root.ExecuteContext(ctx)
+	if err == nil || errors.Is(err, tui.ErrAborted) {
+		a.offerUpdate()
+	}
 	switch {
 	case err == nil:
 		return 0
@@ -108,6 +114,7 @@ repository is cloned into the current directory.`,
 		a.newCacheCmd(),
 		a.newConfigCmd(),
 		a.newVersionCmd(),
+		a.newUpgradeCmd(),
 		a.newRefreshCmd(),
 	)
 	return root
@@ -118,6 +125,7 @@ func (a *app) preRun(cmd *cobra.Command, _ []string) error {
 	if a.cfgErr != nil {
 		return a.cfgErr
 	}
+	a.notifyUpdate = a.wantUpdateNotice(cmd)
 	if a.skipRefresh(cmd) || !refresh.Due(a.cfg) {
 		return nil
 	}
@@ -135,7 +143,7 @@ func (a *app) skipRefresh(cmd *cobra.Command) bool {
 		return true
 	}
 	switch cmd.Name() {
-	case refresh.CommandName, "sync", "help", "version", "completion",
+	case refresh.CommandName, "sync", "help", "version", "upgrade", "completion",
 		cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
 		return true
 	}
@@ -146,6 +154,26 @@ func (a *app) skipRefresh(cmd *cobra.Command) bool {
 		}
 	}
 	return false
+}
+
+// wantUpdateNotice reports whether this command should end with the "a new
+// version is available" line, and the offer to install it: only on a terminal,
+// and never around output something else reads (completion scripts, the
+// background refresh).
+func (a *app) wantUpdateNotice(cmd *cobra.Command) bool {
+	if update.Disabled() || !a.cfg.UpdateChecks() || !isTTY(os.Stderr) {
+		return false
+	}
+	switch cmd.Name() {
+	// upgrade says everything there is to say about releases itself.
+	case refresh.CommandName, "upgrade", "completion",
+		cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
+		return false
+	}
+	if parent := cmd.Parent(); parent != nil && parent.Name() == "completion" {
+		return false
+	}
+	return true
 }
 
 // filterFlags are the repository filters shared by several commands.

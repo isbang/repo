@@ -57,6 +57,10 @@ func (a *app) newRefreshCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			start := time.Now()
 			file, err := refresh.Run(cmd.Context(), a.cfg, nil)
+			// The update check rides along with this process rather than
+			// running in anyone's foreground. It does not need the cache, so a
+			// failed refresh does not skip it.
+			a.checkForUpdate(cmd.Context())
 			if err != nil {
 				if errors.Is(err, refresh.ErrLocked) {
 					// Another refresh is doing the work; nothing to report.
